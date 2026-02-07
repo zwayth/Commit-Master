@@ -1,13 +1,14 @@
 name: Auto commit
-
 on:
-
   push:
     branches:
       - master
       
   schedule:
-  - cron: "0 2,3,5,6,7,9,11,12 * * *" 
+  - cron: "0 9 * * *"   # 9 AM UTC
+  - cron: "0 18 * * *"  # 6 PM UTC
+  
+  workflow_dispatch: # Allows manual triggering
 
 jobs:
   auto_commit:
@@ -15,38 +16,101 @@ jobs:
     steps:
       - name: DEBUG 
         run: echo "::debug::Ref = ${{github.ref}}"
-      - uses: actions/checkout@v2      
+        
+      - uses: actions/checkout@v3      
         with:
          persist-credentials: false
          fetch-depth: 0
-
-      - name: Modify last update
+      
+      - name: Decide if today should have commits
+        id: random_check
         run: |
-          d=`date '+%Y-%m-%dT%H:%M:%SZ'`
-          echo $d > LAST_UPDATED
+          # Generate random number 0-100
+          DAY_CHANCE=$((RANDOM % 100))
           
-      - name: Commit changes
+          # Only commit on ~30% of days (makes it look natural - NOT every day)
+          if [ $DAY_CHANCE -lt 70 ]; then
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "Skipping today - no commits"
+            exit 0
+          fi
+          
+          echo "should_run=true" >> $GITHUB_OUTPUT
+          echo "Today will have commits"
+          
+          # Randomly decide how many commits for today (1-3, with bias towards 1-2)
+          RAND_COMMITS=$((RANDOM % 100))
+          if [ $RAND_COMMITS -lt 60 ]; then
+            NUM_COMMITS=1  # 60% chance of just 1 commit
+          elif [ $RAND_COMMITS -lt 90 ]; then
+            NUM_COMMITS=2  # 30% chance of 2 commits
+          else
+            NUM_COMMITS=3  # 10% chance of 3 commits
+          fi
+          
+          echo "commits_count=$NUM_COMMITS" >> $GITHUB_OUTPUT
+          echo "Will make $NUM_COMMITS commit(s) today"
+      
+      - name: Make commits
+        if: steps.random_check.outputs.should_run == 'true'
         run: |
+          # Get the number of commits to make
+          COMMITS_TO_MAKE=${{ steps.random_check.outputs.commits_count }}
+          
+          # Configure git
           git config --local user.email "iburhanwebb@gmail.com"
           git config --local user.name "zwayth"
-          git add -A
           
-          arr[0]="commit"
-          arr[1]="commit"
-          arr[2]="commit"
-          arr[3]="commit"
-          arr[4]="commit"
-          arr[5]="commit"
-          arr[6]="commit"
-          arr[7]="commit"
-          arr[8]="commit"
-          arr[9]="commit"
+          # Array of natural-looking commit messages
+          arr[0]="chore: update dependencies"
+          arr[1]="docs: update documentation"
+          arr[2]="fix: minor bug fixes"
+          arr[3]="refactor: code cleanup"
+          arr[4]="chore: update configuration"
+          arr[5]="docs: improve readme"
+          arr[6]="chore: maintenance"
+          arr[7]="style: format code"
+          arr[8]="chore: update assets"
+          arr[9]="docs: add comments"
+          arr[10]="refactor: optimize code"
+          arr[11]="chore: update files"
+          arr[12]="fix: resolve issues"
+          arr[13]="feat: minor improvements"
+          arr[14]="chore: general updates"
           
-          rand=$[$RANDOM % ${#arr[@]}]
-          
-          git commit -m "${arr[$rand]}"
+          # Make commits with realistic timing
+          for i in $(seq 1 $COMMITS_TO_MAKE); do
+            # Add significant random delay between commits (10-120 minutes)
+            # This makes multiple commits on same day look like real work sessions
+            if [ $i -gt 1 ]; then
+              DELAY=$((600 + RANDOM % 6600))  # 600-7200 seconds (10 mins - 2 hours)
+              echo "Waiting $((DELAY / 60)) minutes before next commit..."
+              sleep $DELAY
+            fi
+            
+            # Update timestamp
+            d=$(date '+%Y-%m-%dT%H:%M:%SZ')
+            echo $d > LAST_UPDATED
+            
+            # Pick random commit message
+            rand=$((RANDOM % ${#arr[@]}))
+            
+            # Stage changes
+            git add -A
+            
+            # Check if there are actually changes to commit
+            if git diff --staged --quiet; then
+              echo "No changes to commit, stopping"
+              break
+            fi
+            
+            # Commit with random message
+            git commit -m "${arr[$rand]}"
+            echo "Committed ($i/$COMMITS_TO_MAKE): ${arr[$rand]}"
+          done
           
       - name: GitHub Push
+        if: steps.random_check.outputs.should_run == 'true'
         uses: ad-m/github-push-action@v0.8.0
         with:
           directory: "."
